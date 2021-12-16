@@ -1,12 +1,10 @@
-#include "vsqt.h"
-#include <QtWidgets/QApplication>
 #include<iostream>
 #include<fstream>
 #include<string>
 #include<algorithm>
-#include<vector>
 #include<qtextstream.h>
 #include<qfile.h>
+#include<qdir.h>
 #include<map>
 
 using namespace std;
@@ -31,7 +29,7 @@ string readHeader(QTextStream& in) {
 	if (line.contains("Fluent")) {
 		return "Fluent";
 	}
-	return "";
+	return "error";
 }
 
 void writeHeader(ofstream& out, string type, string notes) {
@@ -75,7 +73,7 @@ void readPoints10(QTextStream& in, ofstream& out, QString line, string meshType)
 	
 	firstIndex = sList.at(2).toInt(0, 16);
 	lastIndex = sList.at(3).toInt(0, 16);
-	if (meshType.compare("Fluent") == 0) {
+	if (meshType.compare("Fluent") == 0) {//ICEM转化的mesh多上行(
 		in.readLine();
 	}
 	for (int i = firstIndex; i <= lastIndex; ++i) {
@@ -91,7 +89,7 @@ void readFaces13(int start, int end, int faceType, bool isInternal, string meshT
 		QStringList sList;
 		for (int i = start; i <= end; ++i) {
 			sList = in.readLine().simplified().split(" ");
-			QList<int> list;
+			QList<int> list;//list里放的是  fnp p1 p2...pn ownerid neighbourid
 			int fnp = faceType != 0 ? faceType : sList.at(0).toInt();//一个面有多少个点。
 			list.append(fnp);
 			int j = faceType != 0 ? 0 : 1;
@@ -110,7 +108,7 @@ void readFaces13(int start, int end, int faceType, bool isInternal, string meshT
 		QStringList sList;
 		for (int i = start; i <= end; ++i) {
 			sList = in.readLine().simplified().split(" ");
-			QList<int> list;
+			QList<int> list; // list里放的是  fnp p1 p2...pn ownerid neighbourid
 			int fnp = faceType != 0 ? faceType : sList.at(0).toInt();//一个面有多少个点。
 			list.append(fnp);
 			int j = faceType != 0 ? 0 : 1;
@@ -118,6 +116,7 @@ void readFaces13(int start, int end, int faceType, bool isInternal, string meshT
 			for (; j <= jend; ++j) {
 				list.append(sList.at(j).toInt(0, 16) - 1);
 			}
+			//这里Gambit转的mesh和Ansys、ICEM转的mesh相反。
 			if (meshType.compare("Gambit") == 0) {
 				list.append(sList.at(sList.length() - 1).toInt(0, 16) - 1);
 				list.append(sList.at(sList.length() - 2).toInt(0, 16) - 1);
@@ -145,11 +144,17 @@ void fluentMeshToFoam(QString modelPath, string workPath) {
 	//}
 	//QTextStream outp(&filep);
 	//outp << "fuck" << endl;
-	ofstream outp(workPath + "/points",ios::out);
-	ofstream outf(workPath + "/faces", ios::out);
-	ofstream outo(workPath + "/owner",ios::out);
-	ofstream outn(workPath + "/neighbour",ios::out);
-	ofstream outb(workPath + "/boundary",ios::out);
+
+	QDir dir(QString::fromStdString(workPath) + "/constant/polyMesh");
+	if (!dir.exists()) {
+		dir.mkpath(QString::fromStdString(workPath) + "/constant/polyMesh");
+	}
+
+	ofstream outp(workPath + "/constant/polyMesh/points",ios::out);
+	ofstream outf(workPath + "/constant/polyMesh/faces", ios::out);
+	ofstream outo(workPath + "/constant/polyMesh/owner",ios::out);
+	ofstream outn(workPath + "/constant/polyMesh/neighbour",ios::out);
+	ofstream outb(workPath + "/constant/polyMesh/boundary",ios::out);
 
 	int np = 0; //点的总数量
 	int nf = 0;//面的总数量
@@ -164,17 +169,17 @@ void fluentMeshToFoam(QString modelPath, string workPath) {
 
 	QString line;
 	QStringList sList;
-	string meshType = readHeader(in);
+	string meshType = readHeader(in);//网格类型
 
 	while (!in.atEnd()) {
 		line = in.readLine();
 		if (line.endsWith(")(")) {
 			line = line.replace(")", " ").replace("(", " ").simplified();
 			sList = line.split(" ");
-			if (sList.at(0) == "10") {
+			if (sList.at(0) == "10") {//读取点
 				readPoints10(in,outp,line,meshType);
 			}
-			else if (sList.at(0) == "13") {
+			else if (sList.at(0) == "13") {//读取面
 				int zoneid = sList.at(1).toInt(0, 16);
 				int firstIndex = sList.at(2).toInt(0, 16);
 				int lastIndex = sList.at(3).toInt(0, 16);
@@ -200,10 +205,10 @@ void fluentMeshToFoam(QString modelPath, string workPath) {
 				outp << np << "\n" << "(" << endl;
 			}
 			else if (sList.at(0) == "12" && sList.at(1) == "0") {
-				nc = sList.at(3).toInt(0, 16);
+				nc = sList.at(3).toInt(0, 16);//记录总单元数
 			}
 			else if (sList.at(0) == "13" && sList.at(1) == "0") {
-				nf = sList.at(3).toInt(0, 16);
+				nf = sList.at(3).toInt(0, 16);//记录总面数
 			}
 			else if (sList.at(0) == "45" || sList.at(0) == "39") {
 				if (!hasWritePatchNum) {//写边界头文件
@@ -212,8 +217,8 @@ void fluentMeshToFoam(QString modelPath, string workPath) {
 					hasWritePatchNum = true;
 				}
 				if (map.find(sList.at(1).toInt()) != map.end()) {
-					int nFaces = *map.find(sList.at(1).toInt());
-					string name = sList.at(3).toStdString();
+					int nFaces = *map.find(sList.at(1).toInt());//这个边界块有多少个面
+					string name = sList.at(3).toStdString();//边界的命名
 					writeBoundary(outb, name, nFaces, nInternalFace + accumulateBoundaryFace);
 					accumulateBoundaryFace += nFaces;
 				}
@@ -221,12 +226,13 @@ void fluentMeshToFoam(QString modelPath, string workPath) {
 		}
 	}
 
+	infile.close();
 	outp << ")" << endl;
 	outb << ")" << endl;
 	outp.close();
 	outb.close();
 
-	sort(internalFace.begin(), internalFace.end(), compareTo);
+	sort(internalFace.begin(), internalFace.end(), compareTo);//将内部面先按owner大小排序,owner相同则按neighbour。
 
 	writeHeader(outf, "faces", "");
 	string note = "    note        \"nPoints:" + to_string(np) + " nCells:" + to_string(nc) + " nFaces: " + to_string(nf) + " nInternalFaces:" + to_string(nInternalFace) + "\";\n";
@@ -236,6 +242,7 @@ void fluentMeshToFoam(QString modelPath, string workPath) {
 	outo << nf << "\n" << "(" << endl;
 	outn << nInternalFace << "\n" << "(" << endl;
 	QList<int> list;
+
 	for (int i = 0; i < internalFace.size(); ++i) {
 		list = internalFace.at(i);
 		int fnp = list.at(0);
@@ -268,18 +275,11 @@ void fluentMeshToFoam(QString modelPath, string workPath) {
 	outf.close();
 	outo.close();
 	outn.close();
-
 }
 
 int main(int argc, char *argv[])
 {
-	fluentMeshToFoam("E:/FastCAE/666.msh", "E:/FastCAE/666");
- 
-   /* QApplication a(argc, argv);
-    vsqt w;
-    w.show();
-    return a.exec();*/ 
-
+	fluentMeshToFoam("xxx", "xxx");
 	system("pause");
   	return 0;
 }
