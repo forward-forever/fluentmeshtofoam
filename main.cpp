@@ -52,9 +52,9 @@ void writeHeader(ofstream& out, string type, string notes) {
 		"// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //\n" << endl;
 }
 
-void writeBoundary(ofstream& outb, string name, int nFaces, int startFaces) {
-	string type = name.compare("wall") ? "patch" : "wall";
-	string str = name.compare("wall") ?  "" : "        inGroups        List<word> 1(wall);\n";
+void writeBoundary(ofstream& outb, bool isWall, string name, int nFaces, int startFaces) {
+	string type = !isWall ? "patch" : "wall";
+	string str = !isWall ?  "" : "        inGroups        List<word> 1(wall);\n";
 	outb << "    "+name+"\n"
 		"    {\n"
 		"        type            "+type+";\n"
@@ -73,7 +73,7 @@ void readPoints10(QTextStream& in, ofstream& out, QString line, string meshType)
 	
 	firstIndex = sList.at(2).toInt(0, 16);
 	lastIndex = sList.at(3).toInt(0, 16);
-	if (meshType.compare("Fluent") == 0) {//ICEM×ª»¯µÄmesh¶àÉÏĞĞ(
+	if (meshType.compare("Fluent") == 0) {//ICEMè½¬åŒ–çš„meshå¤šä¸Šè¡Œ(
 		in.readLine();
 	}
 	for (int i = firstIndex; i <= lastIndex; ++i) {
@@ -89,8 +89,8 @@ void readFaces13(int start, int end, int faceType, bool isInternal, string meshT
 		QStringList sList;
 		for (int i = start; i <= end; ++i) {
 			sList = in.readLine().simplified().split(" ");
-			QList<int> list;//listÀï·ÅµÄÊÇ  fnp p1 p2...pn ownerid neighbourid
-			int fnp = faceType != 0 ? faceType : sList.at(0).toInt();//Ò»¸öÃæÓĞ¶àÉÙ¸öµã¡£
+			QList<int> list;//listé‡Œæ”¾çš„æ˜¯  fnp p1 p2...pn ownerid neighbourid
+			int fnp = faceType != 0 ? faceType : sList.at(0).toInt();//ä¸€ä¸ªé¢æœ‰å¤šå°‘ä¸ªç‚¹ã€‚
 			list.append(fnp);
 			int j = faceType != 0 ? 0 : 1;
 			int jend = faceType != 0 ? fnp - 1 : fnp;
@@ -108,15 +108,15 @@ void readFaces13(int start, int end, int faceType, bool isInternal, string meshT
 		QStringList sList;
 		for (int i = start; i <= end; ++i) {
 			sList = in.readLine().simplified().split(" ");
-			QList<int> list; // listÀï·ÅµÄÊÇ  fnp p1 p2...pn ownerid neighbourid
-			int fnp = faceType != 0 ? faceType : sList.at(0).toInt();//Ò»¸öÃæÓĞ¶àÉÙ¸öµã¡£
+			QList<int> list; // listé‡Œæ”¾çš„æ˜¯  fnp p1 p2...pn ownerid neighbourid
+			int fnp = faceType != 0 ? faceType : sList.at(0).toInt();//ä¸€ä¸ªé¢æœ‰å¤šå°‘ä¸ªç‚¹ã€‚
 			list.append(fnp);
 			int j = faceType != 0 ? 0 : 1;
 			int jend = faceType != 0 ? fnp - 1 : fnp;
 			for (; j <= jend; ++j) {
 				list.append(sList.at(j).toInt(0, 16) - 1);
 			}
-			//ÕâÀïGambit×ªµÄmeshºÍAnsys¡¢ICEM×ªµÄmeshÏà·´¡£
+			//è¿™é‡ŒGambitè½¬çš„meshå’ŒAnsysã€ICEMè½¬çš„meshç›¸åã€‚
 			if (meshType.compare("Gambit") == 0) {
 				list.append(sList.at(sList.length() - 1).toInt(0, 16) - 1);
 				list.append(sList.at(sList.length() - 2).toInt(0, 16) - 1);
@@ -156,37 +156,37 @@ void fluentMeshToFoam(QString modelPath, string workPath) {
 	ofstream outn(workPath + "/constant/polyMesh/neighbour",ios::out);
 	ofstream outb(workPath + "/constant/polyMesh/boundary",ios::out);
 
-	int np = 0; //µãµÄ×ÜÊıÁ¿
-	int nf = 0;//ÃæµÄ×ÜÊıÁ¿
-	int nc = 0;//µ¥ÔªµÄ×ÜÊıÁ¿
-	int nInternalFace = 0;//ÄÚ²¿ÃæµÄ×ÜÊıÁ¿ 
-	int accumulateBoundaryFace = 0;//ÀÛ¼Æ±ß½çÃæµÄÊıÁ¿ 
-	bool hasWritePatchNum = false;//ÊÇ·ñĞ´±ß½çÃæÊıÁ¿
+	int np = 0; //ç‚¹çš„æ€»æ•°é‡
+	int nf = 0;//é¢çš„æ€»æ•°é‡
+	int nc = 0;//å•å…ƒçš„æ€»æ•°é‡
+	int nInternalFace = 0;//å†…éƒ¨é¢çš„æ€»æ•°é‡ 
+	int accumulateBoundaryFace = 0;//ç´¯è®¡è¾¹ç•Œé¢çš„æ•°é‡ 
+	bool hasWritePatchNum = false;//æ˜¯å¦å†™è¾¹ç•Œé¢æ•°é‡
 
-	QList<QList<int>> internalFace;//ÄÚ²¿Ãæ¼¯ºÏ
-	QList<QList<int>> boundaryFace;//±ß½çÃæ¼¯ºÏ
+	QList<QList<int>> internalFace;//å†…éƒ¨é¢é›†åˆ
+	QList<QList<int>> boundaryFace;//è¾¹ç•Œé¢é›†åˆ
 	QHash<int, int> map;//key:zoneid  value:nFaces
 
 	QString line;
 	QStringList sList;
-	string meshType = readHeader(in);//Íø¸ñÀàĞÍ
+	string meshType = readHeader(in);//ç½‘æ ¼ç±»å‹
 
 	while (!in.atEnd()) {
 		line = in.readLine();
 		if (line.endsWith(")(")) {
 			line = line.replace(")", " ").replace("(", " ").simplified();
 			sList = line.split(" ");
-			if (sList.at(0) == "10") {//¶ÁÈ¡µã
+			if (sList.at(0) == "10") {//è¯»å–ç‚¹
 				readPoints10(in,outp,line,meshType);
 			}
-			else if (sList.at(0) == "13") {//¶ÁÈ¡Ãæ
+			else if (sList.at(0) == "13") {//è¯»å–é¢
 				int zoneid = sList.at(1).toInt(0, 16);
 				int firstIndex = sList.at(2).toInt(0, 16);
 				int lastIndex = sList.at(3).toInt(0, 16);
 				int bcType = sList.at(4).toInt(0, 16);
 				int faceType = sList.at(5).toInt(0, 16);
 				int nFaces = lastIndex - firstIndex + 1;
-				if (bcType == 2) {//ÄÚ²¿Ãæ
+				if (bcType == 2) {//å†…éƒ¨é¢
 					nInternalFace += nFaces;
 					readFaces13(firstIndex - 1, lastIndex - 1, faceType, true, meshType, internalFace, in);
 				}
@@ -201,24 +201,25 @@ void fluentMeshToFoam(QString modelPath, string workPath) {
 			sList = line.split(" ");
 			if (sList.at(0) == "10" && sList.at(1) == "0") {
 				np = sList.at(3).toInt(0, 16);
-				writeHeader(outp, "points", "");//Ğ´µãÎÄ¼şÍ·
+				writeHeader(outp, "points", "");//å†™ç‚¹æ–‡ä»¶å¤´
 				outp << np << "\n" << "(" << endl;
 			}
 			else if (sList.at(0) == "12" && sList.at(1) == "0") {
-				nc = sList.at(3).toInt(0, 16);//¼ÇÂ¼×Üµ¥ÔªÊı
+				nc = sList.at(3).toInt(0, 16);//è®°å½•æ€»å•å…ƒæ•°
 			}
 			else if (sList.at(0) == "13" && sList.at(1) == "0") {
-				nf = sList.at(3).toInt(0, 16);//¼ÇÂ¼×ÜÃæÊı
+				nf = sList.at(3).toInt(0, 16);//è®°å½•æ€»é¢æ•°
 			}
 			else if (sList.at(0) == "45" || sList.at(0) == "39") {
-				if (!hasWritePatchNum) {//Ğ´±ß½çÍ·ÎÄ¼ş
+				if (!hasWritePatchNum) {//å†™è¾¹ç•Œå¤´æ–‡ä»¶
 					writeHeader(outb, "boundary", "");
 					outb << map.size() << "\n" << "(" << endl;
 					hasWritePatchNum = true;
 				}
 				if (map.find(sList.at(1).toInt()) != map.end()) {
-					int nFaces = *map.find(sList.at(1).toInt());//Õâ¸ö±ß½ç¿éÓĞ¶àÉÙ¸öÃæ
-					string name = sList.at(3).toStdString();//±ß½çµÄÃüÃû
+					int nFaces = *map.find(sList.at(1).toInt());//è¿™ä¸ªè¾¹ç•Œå—æœ‰å¤šå°‘ä¸ªé¢
+					bool isWall = sList.at(3).compare("wall") == 0; // è¾¹ç•Œç±»å‹æ˜¯å¦ä¸ºwall
+					string name = sList.at(3).toStdString();//è¾¹ç•Œçš„åç§°
 					writeBoundary(outb, name, nFaces, nInternalFace + accumulateBoundaryFace);
 					accumulateBoundaryFace += nFaces;
 				}
@@ -232,7 +233,7 @@ void fluentMeshToFoam(QString modelPath, string workPath) {
 	outp.close();
 	outb.close();
 
-	sort(internalFace.begin(), internalFace.end(), compareTo);//½«ÄÚ²¿ÃæÏÈ°´owner´óĞ¡ÅÅĞò,ownerÏàÍ¬Ôò°´neighbour¡£
+	sort(internalFace.begin(), internalFace.end(), compareTo);//å°†å†…éƒ¨é¢å…ˆæŒ‰ownerå¤§å°æ’åº,ownerç›¸åŒåˆ™æŒ‰neighbourã€‚
 
 	writeHeader(outf, "faces", "");
 	string note = "    note        \"nPoints:" + to_string(np) + " nCells:" + to_string(nc) + " nFaces: " + to_string(nf) + " nInternalFaces:" + to_string(nInternalFace) + "\";\n";
